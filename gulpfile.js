@@ -17,6 +17,8 @@ const sourcemaps   = require('gulp-sourcemaps')
 const urlBuilder   = require('gulp-url-builder')
 const autoprefixer = require('gulp-autoprefixer')
 const htmlbeautify = require('gulp-html-beautify')
+const imagemin = require('gulp-imagemin');
+const plumber = require('gulp-plumber');
 
 // variables
 const destination = 'docs'
@@ -33,6 +35,7 @@ function pugCompile() {
     .pipe( dest(destination) )
     .pipe( bsync.reload({ stream: true }) )
 }
+
 function pugWatch(cb) {
   watch(['src/pug/**/*.pug'], pugCompile)
   cb()
@@ -43,15 +46,18 @@ function sassCompile() {
   return src([
     'src/scss/**/*.+(sass|scss|css)',
     '!src/scss/**/_*.*'
-  ]).pipe( sass({ includePaths: ['node_modules'] }) )
-    .pipe( autoprefixer() )
-    .pipe( cleanCSS() )
-    .pipe( dest(`${destination}/css`) )
-    .pipe( bsync.reload({ stream: true }) )
+  ])
+      .pipe(plumber()) // предотвращает остановку Gulp при ошибках
+      .pipe(sass({ includePaths: ['node_modules'] }).on('error', sass.logError)) // логирует ошибки Sass
+      .pipe(autoprefixer())
+      .pipe(cleanCSS())
+      .pipe(dest(`${destination}/css`))
+      .pipe(bsync.reload({ stream: true }));
 }
+
 function sassWatch(cb) {
   watch(['src/scss/**/*.+(sass|scss|css)'], sassCompile)
-  cb()
+  cb();
 }
 
 // javascript
@@ -62,9 +68,22 @@ function jsBundle() {
     .pipe( dest(`${destination}/js`) )
     .pipe( bsync.reload({ stream: true }) )
 }
+
 function jsWatch(cb) {
   watch('src/js/**/*.js', jsBundle)
   cb()
+}
+
+function imagesCompile() {
+  return src('src/images/**/*.*') // выбираем все изображения из папки src/images
+      .pipe(imagemin()) // оптимизируем изображения для веба
+      .pipe(dest(`${destination}/images`)) // копируем их в папку docs/images
+      .pipe(bsync.reload({ stream: true })); // перезагружаем сервер Browsersync
+}
+
+function imagesWatch(cb) {
+  watch('src/images/**/*.*', imagesCompile) // следим за изменениями всех изображений в папке src/images
+  cb();
 }
 
 // browsersync
@@ -80,6 +99,7 @@ function sync() {
 exports.pug     = pugCompile
 exports.sass    = sassCompile
 exports.js      = jsBundle
-exports.build   = parallel(exports.pug, exports.sass, exports.js)
-exports.watch   = series(pugWatch, sassWatch, jsWatch)
+exports.images  = imagesCompile; // экспортируем таск images, чтобы его можно было использовать отдельно
+exports.build   = parallel(exports.pug, exports.sass, exports.js, exports.images); // добавляем таск images в build
+exports.watch   = series(pugWatch, sassWatch, jsWatch, imagesWatch); // добавляем таск imagesWatch в watch
 exports.default = series(exports.build, exports.watch, sync)
